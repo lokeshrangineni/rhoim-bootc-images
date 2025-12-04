@@ -44,11 +44,26 @@ This directory contains the Containerfile and configuration files for building a
 
 ### 1. Build Container Image
 
-Build the bootc container image with vLLM:
+Build the bootc container image with vLLM. You have three options for providing Red Hat subscription access:
+
+**Option 1: Mount Host Subscription Certificates (Recommended for EC2)**
+
+If your host system is already registered with Red Hat subscription:
 
 ```bash
 cd /path/to/rhoim-bootc-images
 
+podman build --volume /etc/pki/entitlement:/etc/pki/entitlement:ro \
+  --volume /etc/rhsm:/etc/rhsm:ro \
+  -t localhost/rhoim-bootc-rhel:latest \
+  --build-arg VLLM_VERSION=0.11.0 \
+  --build-arg PYTHON_VERSION=3.11 \
+  -f deploy/bootc-rhel/Containerfile .
+```
+
+**Option 2: Using Activation Key**
+
+```bash
 podman build -t localhost/rhoim-bootc-rhel:latest \
   --build-arg RHN_ORG_ID=your_org_id \
   --build-arg RHN_ACTIVATION_KEY=your_activation_key \
@@ -57,13 +72,8 @@ podman build -t localhost/rhoim-bootc-rhel:latest \
   -f deploy/bootc-rhel/Containerfile .
 ```
 
-**Build Arguments:**
-- `RHN_ORG_ID`: Your Red Hat Organization ID (required for subscription)
-- `RHN_ACTIVATION_KEY`: Your Red Hat Activation Key (required for subscription)
-- `VLLM_VERSION`: vLLM version to build (default: 0.11.0)
-- `PYTHON_VERSION`: Python version (default: 3.11)
+**Option 3: Using Username/Password**
 
-**Alternative: Using Username/Password**
 ```bash
 podman build -t localhost/rhoim-bootc-rhel:latest \
   --build-arg RHN_USERNAME=your_username \
@@ -72,6 +82,16 @@ podman build -t localhost/rhoim-bootc-rhel:latest \
   --build-arg PYTHON_VERSION=3.11 \
   -f deploy/bootc-rhel/Containerfile .
 ```
+
+**Build Arguments:**
+- `RHN_ORG_ID`: Your Red Hat Organization ID (for Option 2)
+- `RHN_ACTIVATION_KEY`: Your Red Hat Activation Key (for Option 2)
+- `RHN_USERNAME`: Your Red Hat username (for Option 3)
+- `RHN_PASSWORD`: Your Red Hat password (for Option 3)
+- `VLLM_VERSION`: vLLM version to build (default: 0.11.0)
+- `PYTHON_VERSION`: Python version (default: 3.11)
+
+**Note:** If certificates are mounted (Option 1) or subscription credentials are provided, the build will use them. Otherwise, it will attempt to use available repositories from the base image.
 
 **Note**: The build process:
 - Registers the system with Red Hat subscription
@@ -139,6 +159,36 @@ qemu-system-aarch64 \
   -device virtio-net-pci,netdev=net0 \
   -serial stdio
 ```
+
+### On x86_64 (Intel/AMD)
+
+```bash
+# On Linux with KVM
+qemu-system-x86_64 \
+  -accel kvm \
+  -cpu host \
+  -smp 4 \
+  -m 4G \
+  -drive file=images/qcow2/disk.qcow2,format=qcow2,if=virtio \
+  -bios /usr/share/qemu/edk2-x86_64-code.fd \
+  -netdev user,id=net0,hostfwd=tcp::8022-:22,hostfwd=tcp::8006-:8000 \
+  -device virtio-net-pci,netdev=net0 \
+  -serial stdio
+
+# On macOS (without KVM, using TCG)
+BIOS_X64="$(brew --prefix qemu)/share/qemu/edk2-x86_64-code.fd"
+qemu-system-x86_64 \
+  -cpu host \
+  -smp 4 \
+  -m 4G \
+  -drive file=images/qcow2/disk.qcow2,format=qcow2,if=virtio \
+  -bios "$BIOS_X64" \
+  -netdev user,id=net0,hostfwd=tcp::8022-:22,hostfwd=tcp::8006-:8000 \
+  -device virtio-net-pci,netdev=net0 \
+  -serial stdio
+```
+
+**Important**: The `-cpu host` flag is **required** for RHEL 9.7+ which requires x86-64-v2 instruction set support. Without it, you'll see "Fatal glibc error: CPU does not support x86-64-v2" and kernel panic.
 
 ## Testing and Verification
 
@@ -276,6 +326,23 @@ journalctl -u rhoim-vllm.service -f
 1. SSH service is running: `systemctl status sshd.service`
 2. Port forwarding is correct: Check QEMU command has `hostfwd=tcp::8022-:22`
 3. VM has fully booted: Wait 30-60 seconds after boot
+
+### "Fatal glibc error: CPU does not support x86-64-v2" (x86_64 only)
+
+**Symptom**: VM boots but immediately panics with:
+```
+Fatal glibc error: CPU does not support x86-64-v2
+Kernel panic - not syncing: Attempted to kill init!
+```
+
+**Cause**: QEMU is using the default CPU model (x86-64-v1) which doesn't support the x86-64-v2 instruction set required by RHEL 9.7+ glibc.
+
+**Solution**: Add `-cpu host` to your QEMU command. If `-cpu host` doesn't work on your system (e.g., macOS without KVM), try:
+```bash
+qemu-system-x86_64 -cpu qemu64,+x86-64-v2 ...
+# Or more explicitly:
+qemu-system-x86_64 -cpu qemu64,+ssse3,+sse4.1,+sse4.2,+popcnt ...
+```
 
 ### Build Fails with Subscription Errors
 
