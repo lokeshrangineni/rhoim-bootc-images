@@ -1,27 +1,15 @@
 # =============================================================================
-# Stage 1: Builder – UBI9 + CUDA Toolkit + vLLM from source
+# Stage 1: Builder – UBI9 + vLLM from pre-built wheels
 # =============================================================================
 FROM registry.access.redhat.com/ubi9/ubi:latest AS builder
 
 ARG VLLM_VERSION=0.12.0
 
-# Add NVIDIA CUDA repo and install CUDA toolkit + build dependencies
+# Install Python 3.12 only (no CUDA toolkit needed for wheels)
 RUN dnf -y install \
-      https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm \
-    && dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo \
-    && dnf -y install \
-      cuda-toolkit-12-4 \
       python3.12 \
       python3.12-pip \
-      python3.12-devel \
-      gcc gcc-c++ \
-      cmake ninja-build \
-      make git \
     && dnf clean all
-
-ENV CUDA_HOME=/usr/local/cuda-12.4 \
-    PATH="/usr/local/cuda-12.4/bin:${PATH}" \
-    LD_LIBRARY_PATH="/usr/local/cuda-12.4/lib64:${LD_LIBRARY_PATH}"
 
 # Create venv with Python 3.12
 RUN python3.12 -m venv /opt/vllm-venv
@@ -33,12 +21,7 @@ ENV PATH="/opt/vllm-venv/bin:${PATH}" \
 # Upgrade pip
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Install PyTorch with CUDA 12.4 support
-RUN pip install --no-cache-dir \
-      torch torchvision torchaudio \
-      --index-url https://download.pytorch.org/whl/cu124
-
-# Copy and run the CUDA build script
+# Install vLLM from PyPI (includes PyTorch with CUDA)
 COPY scripts/build-vllm-cuda.sh /tmp/build-vllm-cuda.sh
 RUN chmod +x /tmp/build-vllm-cuda.sh && \
     /tmp/build-vllm-cuda.sh ${VLLM_VERSION} && \

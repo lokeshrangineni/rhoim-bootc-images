@@ -1,43 +1,22 @@
 #!/usr/bin/env bash
-# Build vLLM from source with CUDA support
-# This script handles the complete build process for GPU-enabled vLLM
+# Install vLLM with CUDA support using pre-built wheels
+# Falls back to source build only if wheels are unavailable
 
 set -euo pipefail
 
-VLLM_VERSION="${1:-0.8.5}"
-VLLM_SRC_DIR="/tmp/vllm-src"
+VLLM_VERSION="${1:-0.12.0}"
 
-echo "[vLLM CUDA Build] Starting vLLM ${VLLM_VERSION} CUDA build..."
+echo "[vLLM CUDA] Installing vLLM ${VLLM_VERSION} from PyPI wheels..."
 
-# Clone vLLM repository
-echo "[vLLM CUDA Build] Cloning vLLM repository..."
-if ! git clone --depth 1 --branch "v${VLLM_VERSION}" https://github.com/vllm-project/vllm.git "${VLLM_SRC_DIR}" 2>/dev/null; then
-    echo "[vLLM CUDA Build] Branch v${VLLM_VERSION} not found, using main branch..."
-    git clone --depth 1 https://github.com/vllm-project/vllm.git "${VLLM_SRC_DIR}"
+# Try pre-built wheel first (fastest)
+if pip install --no-cache-dir "vllm==${VLLM_VERSION}"; then
+    echo "[vLLM CUDA] Successfully installed vLLM ${VLLM_VERSION} from PyPI"
+else
+    echo "[vLLM CUDA] PyPI wheel failed, trying vLLM wheel index..."
+    pip install --no-cache-dir "vllm==${VLLM_VERSION}" \
+        --extra-index-url https://wheels.vllm.ai/nightly || \
+    pip install --no-cache-dir vllm
 fi
 
-cd "${VLLM_SRC_DIR}"
-
-# Install build requirements
-echo "[vLLM CUDA Build] Installing build requirements..."
-pip install --no-cache-dir -r requirements/build.txt
-if [ -f requirements/cuda.txt ]; then
-    pip install --no-cache-dir -r requirements/cuda.txt
-elif [ -f requirements/common.txt ]; then
-    pip install --no-cache-dir -r requirements/common.txt
-fi
-
-# Build vLLM from source with CUDA support
-echo "[vLLM CUDA Build] Building vLLM with CUDA support (this may take a while)..."
-CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}" \
-CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-4}" \
-MAX_JOBS="${MAX_JOBS:-4}" \
-SETUPTOOLS_SCM_PRETEND_VERSION="${VLLM_VERSION}" \
-pip install --no-cache-dir . --no-build-isolation
-
-# Cleanup
-echo "[vLLM CUDA Build] Cleaning up build artifacts..."
-rm -rf "${VLLM_SRC_DIR}"
-
-echo "[vLLM CUDA Build] vLLM ${VLLM_VERSION} CUDA build completed successfully!"
+echo "[vLLM CUDA] vLLM installation completed successfully!"
 
