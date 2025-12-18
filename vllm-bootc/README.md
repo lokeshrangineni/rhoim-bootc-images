@@ -410,8 +410,74 @@ For production deployment:
 
 For cloud deployment specifics (VM sizing, AVX-512 requirements, etc.), see the [Cloud Deployment Guide](../docs/CLOUD_DEPLOYMENT.md).
 
+## GPU Setup (AWS EC2 with NVIDIA GPU)
+
+If testing on an AWS EC2 instance with NVIDIA GPU (e.g., g5.2xlarge with A10G), you need to install NVIDIA drivers on the host:
+
+### 1. Install NVIDIA Drivers
+
+```bash
+# Install EPEL for dkms
+sudo dnf install -y epel-release
+
+# If epel-release isn't available, try:
+sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+
+# Install kernel headers (required for DKMS)
+sudo dnf install -y kernel-devel kernel-headers
+
+# Add NVIDIA CUDA repository
+sudo dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo
+
+# Install dkms and NVIDIA drivers
+sudo dnf install -y dkms
+sudo dnf install -y nvidia-driver nvidia-driver-cuda
+
+# Reboot to load the new kernel modules
+sudo reboot
+```
+
+### 2. Build and Install DKMS Module (if needed after reboot)
+
+After reboot, if `nvidia-smi` doesn't work, the DKMS module may need to be built:
+
+```bash
+# Check DKMS status
+sudo dkms status
+
+# If status shows "added" but not "installed", build and install:
+sudo dkms build nvidia/590.44.01
+sudo dkms install nvidia/590.44.01
+
+# Load the module
+sudo modprobe nvidia
+
+# Verify GPU is detected
+nvidia-smi
+```
+
+### 3. Run vLLM Container with GPU
+
+```bash
+# Run the container with GPU access
+podman run -d \
+  --name rhoim-vllm-cuda \
+  --privileged \
+  --device nvidia.com/gpu=all \
+  --systemd=always \
+  -p 8000:8000 \
+  localhost/rhoim-bootc-cuda:latest
+
+# Check service logs
+podman exec rhoim-vllm-cuda journalctl -u rhoim-vllm.service --no-pager -n 50
+
+# Test the API
+curl http://localhost:8000/v1/models
+```
+
 ## Additional Resources
 
 - [bootc Documentation](https://github.com/containers/bootc)
 - [vLLM Documentation](https://docs.vllm.ai/)
 - [RHEL Bootc Images](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html/managing_containers/using-bootc)
+- [NVIDIA CUDA on RHEL 9](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=RHEL&target_version=9)
