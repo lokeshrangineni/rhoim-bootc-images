@@ -71,8 +71,9 @@ RUN chmod +x /usr/local/bin/initializer-entrypoint.sh \
     # Create RHOIM layout and assign ownership to rhoim
     && mkdir -p /opt/rhoim/{bin,models,gateway} /tmp/models \
     && chown -R rhoim:rhoim /opt/rhoim /tmp/models \
-    # Create /sysroot directory required by bootc lint
-    && mkdir -p /sysroot \
+    # Create /sysroot and ostree symlink required by bootc lint
+    && mkdir -p /sysroot/ostree \
+    && ln -sf sysroot/ostree /ostree \
     # Enable the vLLM service
     && systemctl enable rhoim-vllm.service
 
