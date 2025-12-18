@@ -473,22 +473,42 @@ cat /etc/cdi/nvidia.yaml | head -20
 
 ### 4. Run vLLM Container with GPU
 
+**Important**: The `--privileged` flag is required for proper GPU access in bootc/systemd containers.
+
 ```bash
+# Remove any existing container
+podman rm -f rhoim-vllm-cuda 2>/dev/null
+
 # Run the container with GPU access
 podman run -d \
   --name rhoim-vllm-cuda \
   --privileged \
   --device nvidia.com/gpu=all \
-  --systemd=always \
   -p 8000:8000 \
   localhost/rhoim-bootc-cuda:latest
+
+# Wait for service to start (model loading takes 30-60 seconds)
+sleep 45
 
 # Check service logs
 podman exec rhoim-vllm-cuda journalctl -u rhoim-vllm.service --no-pager -n 50
 
 # Test the API
 curl http://localhost:8000/v1/models
+
+# Test a chat completion
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "/tmp/models/TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
 ```
+
+**Notes on GPU Access**:
+- The `--privileged` flag is required because the bootc container runs systemd as PID 1, and the vLLM service runs under the `rhoim` user. Without privileged mode, the service user cannot access GPU devices.
+- The `--device nvidia.com/gpu=all` uses NVIDIA CDI (Container Device Interface) to inject GPU devices and libraries into the container.
+- The vLLM service uses `--enforce-eager` mode by default for CUDA to avoid Triton JIT compilation issues in systemd service context.
 
 ## Additional Resources
 
