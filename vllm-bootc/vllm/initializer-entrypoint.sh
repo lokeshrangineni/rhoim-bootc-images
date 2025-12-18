@@ -82,7 +82,8 @@ ARGS=(
 
 if [[ "${DEVICE}" == "cuda" ]]; then
     echo "[RHOIM] Starting vLLM in CUDA mode"
-    # vLLM 0.10.2 doesn't support --device argument, rely on environment variables
+    # Add --enforce-eager to avoid Triton JIT compilation issues
+    ARGS+=(--enforce-eager)
 else
     echo "[RHOIM] Starting vLLM in CPU mode"
     # vLLM 0.10.2 doesn't support --device argument, use environment variables and dtype
