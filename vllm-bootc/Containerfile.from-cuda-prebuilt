@@ -87,5 +87,7 @@ LABEL org.osbuild.bootc=true \
 # Final bootc lint step (non-fatal)
 RUN bootc container lint || echo "Bootc lint completed with warnings"
 
+# Override the base image's ENTRYPOINT (which expects model as argument)
 # Bootc images must run systemd as PID 1
+ENTRYPOINT []
 CMD ["/sbin/init"]

@@ -456,7 +456,22 @@ sudo modprobe nvidia
 nvidia-smi
 ```
 
-### 3. Run vLLM Container with GPU
+### 3. Install NVIDIA Container Toolkit and Configure CDI
+
+To run containers with GPU access, you need nvidia-container-toolkit and CDI configuration:
+
+```bash
+# Install nvidia-container-toolkit
+sudo dnf install -y nvidia-container-toolkit
+
+# Generate CDI (Container Device Interface) configuration
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+
+# Verify CDI config was created
+cat /etc/cdi/nvidia.yaml | head -20
+```
+
+### 4. Run vLLM Container with GPU
 
 ```bash
 # Run the container with GPU access
