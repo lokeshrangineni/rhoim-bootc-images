@@ -1,0 +1,90 @@
+# =============================================================================
+# Bootc Containerfile - Using Pre-built vLLM CUDA Image
+# =============================================================================
+# This Containerfile takes an existing vLLM CUDA image from Red Hat registry
+# and adds bootc capabilities to make it bootable
+#
+# Usage:
+#   # Make sure you're logged in to Red Hat registry first:
+#   podman login registry.redhat.io
+#
+#   # Then build:
+#   podman build -f Containerfile.from-cuda-prebuilt \
+#     -t localhost/rhoim-bootc-cuda:latest .
+#
+#   # To use a different tag, override the build arg:
+#   podman build -f Containerfile.from-cuda-prebuilt \
+#     --build-arg VLLM_CUDA_IMAGE="registry.redhat.io/rhaiis/vllm-cuda-rhel9:3" \
+#     -t localhost/rhoim-bootc-cuda:latest .
+# =============================================================================
+
+# Start from the pre-built vLLM CUDA image (Red Hat registry)
+# This image already has systemd, Python 3.12, vLLM, and all dependencies
+ARG VLLM_CUDA_IMAGE="registry.redhat.io/rhaiis/vllm-cuda-rhel9:3"
+FROM ${VLLM_CUDA_IMAGE}
+
+# Switch to root to install packages (image runs as default user)
+USER root
+
+# Install bootc tools (required for bootc container lint and bootable images)
+RUN dnf -y install \
+      bootc \
+      systemd \
+    && dnf clean all
+
+# Fix permissions on /opt/app-root so rhoim user can access it
+# The source image uses user 1001, but we need rhoim user to access it
+RUN chmod -R a+rX /opt/app-root
+
+# Copy /etc contents (sysconfig, systemd units, sysusers)
+COPY etc/ /etc/
+
+# Initializer script
+COPY vllm/initializer-entrypoint.sh /usr/local/bin/initializer-entrypoint.sh
+
+# For CUDA builds, we don't need CPU-only environment variables
+# The service will use CUDA mode by default (can be overridden via /etc/sysconfig/rhoim)
+# Remove any CPU-only env vars that might have been set for arm64
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" != "aarch64" ]; then \
+        # For non-arm64 (amd64 with CUDA), ensure CUDA mode is available
+        # The initializer script will handle device selection based on VLLM_DEVICE_TYPE
+        echo "[Bootc Setup] CUDA mode available for ${ARCH}"; \
+    else \
+        # For arm64, we still set CPU-only mode (CUDA not available on ARM)
+        awk '/^ExecStart=/ { \
+            print "# CPU-only mode for arm64 (CUDA not available on ARM)"; \
+            print "Environment=CUDA_VISIBLE_DEVICES="; \
+            print "Environment=VLLM_DEVICE_TYPE=cpu"; \
+            print "Environment=VLLM_NO_CUDA=1"; \
+            print "Environment=VLLM_CPU_ONLY=1"; \
+            print "Environment=VLLM_PLATFORM=cpu"; \
+            print "Environment=VLLM_SKIP_PLATFORM_CHECK=1"; \
+            print "Environment=VLLM_USE_FLASHINFER=0"; \
+        } 1' /etc/systemd/system/rhoim-vllm.service > /tmp/rhoim-vllm.service.tmp && \
+        mv /tmp/rhoim-vllm.service.tmp /etc/systemd/system/rhoim-vllm.service; \
+    fi
+
+RUN chmod +x /usr/local/bin/initializer-entrypoint.sh \
+    # Create rhoim user via systemd-sysusers
+    && systemd-sysusers \
+    # Create RHOIM layout and assign ownership to rhoim
+    && mkdir -p /opt/rhoim/{bin,models,gateway} /tmp/models \
+    && chown -R rhoim:rhoim /opt/rhoim /tmp/models \
+    # Create /sysroot directory required by bootc lint
+    && mkdir -p /sysroot \
+    # Enable the vLLM service
+    && systemctl enable rhoim-vllm.service
+
+# vLLM listens here
+EXPOSE 8000
+
+# Mark as bootc-compatible
+LABEL org.osbuild.bootc=true \
+      bootc=true
+
+# Final bootc lint step (non-fatal)
+RUN bootc container lint || echo "Bootc lint completed with warnings"
+
+# Bootc images must run systemd as PID 1
+CMD ["/sbin/init"]
