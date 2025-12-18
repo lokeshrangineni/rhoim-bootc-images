@@ -26,10 +26,11 @@ FROM ${VLLM_CUDA_IMAGE}
 # Switch to root to install packages (image runs as default user)
 USER root
 
-# Install bootc tools (required for bootc container lint and bootable images)
+# Install bootc tools and SSH for testing
 RUN dnf -y install \
       bootc \
       systemd \
+      openssh-server \
     && dnf clean all
 
 # Fix permissions on /opt/app-root so rhoim user can access it
@@ -75,7 +76,13 @@ RUN chmod +x /usr/local/bin/initializer-entrypoint.sh \
     && mkdir -p /sysroot/ostree \
     && ln -sf sysroot/ostree /ostree \
     # Enable the vLLM service
-    && systemctl enable rhoim-vllm.service
+    && systemctl enable rhoim-vllm.service \
+    # Enable SSH for testing (hardcoded credentials for dev/test only)
+    && systemctl enable sshd.service \
+    # Set root password for testing (CHANGE IN PRODUCTION!)
+    && echo 'root:rhoim-test-2024' | chpasswd \
+    # Allow root SSH login (for testing only)
+    && sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
 
 # vLLM listens here
 EXPOSE 8000
