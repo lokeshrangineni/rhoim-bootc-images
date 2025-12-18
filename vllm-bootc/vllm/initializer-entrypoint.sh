@@ -52,15 +52,20 @@ LOCAL_MODEL_DIR="${MODEL_PATH}/${VLLM_MODEL}"
 if [ ! -d "${LOCAL_MODEL_DIR}" ] || [ -z "$(ls -A "${LOCAL_MODEL_DIR}" 2>/dev/null || true)" ]; then
     echo "[RHOIM] Downloading ${VLLM_MODEL} to ${LOCAL_MODEL_DIR}"
 
-    # Prefer venv CLI, but fall back to PATH if needed
-    HF_CLI="/opt/vllm-venv/bin/huggingface-cli"
-    if [ ! -x "${HF_CLI}" ]; then
-        if command -v huggingface-cli >/dev/null 2>&1; then
-            HF_CLI="$(command -v huggingface-cli)"
-        else
-            echo "[RHOIM] ERROR: huggingface-cli not found (tried /opt/vllm-venv and PATH)" >&2
-            exit 1
+    # Find huggingface-cli (check multiple locations for different base images)
+    HF_CLI=""
+    for cli_path in "/opt/app-root/bin/huggingface-cli" "/opt/vllm-venv/bin/huggingface-cli"; do
+        if [ -x "${cli_path}" ]; then
+            HF_CLI="${cli_path}"
+            break
         fi
+    done
+    if [ -z "${HF_CLI}" ] && command -v huggingface-cli >/dev/null 2>&1; then
+        HF_CLI="$(command -v huggingface-cli)"
+    fi
+    if [ -z "${HF_CLI}" ]; then
+        echo "[RHOIM] ERROR: huggingface-cli not found" >&2
+        exit 1
     fi
 
     "${HF_CLI}" download "${VLLM_MODEL}" \
@@ -96,8 +101,17 @@ if [[ -n "${VLLM_EXTRA_ARGS}" ]]; then
     ARGS+=("${EXTRA_ARR[@]}")
 fi
 
-# Use the venv's python executable
-PYTHON_CMD="/opt/vllm-venv/bin/python"
+# Find Python executable (check multiple locations for different base images)
+PYTHON_CMD=""
+for py_path in "/opt/app-root/bin/python" "/opt/vllm-venv/bin/python"; do
+    if [ -x "${py_path}" ]; then
+        PYTHON_CMD="${py_path}"
+        break
+    fi
+done
+if [ -z "${PYTHON_CMD}" ]; then
+    PYTHON_CMD="$(command -v python3 || command -v python)"
+fi
 
 echo "[RHOIM] Using Python: ${PYTHON_CMD}"
 echo "[RHOIM] Final vLLM args: ${ARGS[*]}"
